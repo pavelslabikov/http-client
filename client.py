@@ -9,16 +9,15 @@ class Client:
     def __init__(self, args):
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._user_agent = args.agent
-        address = self.parse_link(args.url)
-        self._sock.connect((address[0], address[1]))
+        self._address = self.parse_link(args.url)
+        self._user_data = args.data
         if args.data != '':
-            response = self.post(address, args.data)
+            self.target_method = self.post
         elif args.head:
-            response = self.head(address)
+            self.target_method = self.head
         else:
-            response = self.get(address, args.params)
-        self._sock.close()
-        self.parse_response(args.mode, response)
+            self.target_method = self.get
+            self._user_data = args.params
 
     @staticmethod
     def parse_link(link: str) -> tuple:
@@ -33,50 +32,59 @@ class Client:
         uri = link[parsed_url.end(2):]
         return host, port, uri
 
-    def get(self, uri, params: str):
-        query = f"GET {uri[2] + params} HTTP/1.0\r\n" \
-                f"Host: {uri[0]}\r\n" \
+    def get(self, params: str):
+        query = f"GET {self._address[2] + params} HTTP/1.0\r\n" \
+                f"Host: {self._address[0]}\r\n" \
                 f"User-Agent: {self._user_agent}\r\n" \
                 "Accept: */*\r\n" \
                 "Connection: close\r\n\r\n"
         self._sock.send(bytes(query, "ISO-8859-1"))
         return self.get_response()
 
-    def post(self, uri, body: str):
-        query = f"POST {uri[2]} HTTP/1.0\r\n" \
-                f"Host: {uri[0]}\r\n" \
+    def post(self, body: str):
+        query = f"POST {self._address[2]} HTTP/1.0\r\n" \
+                f"Host: {self._address[0]}\r\n" \
                 "Accept: */*\r\n" \
-                "Content-Type: application/x-www-form-urlencoded\r\n" \
+                "Content-Type: application/x-urlencoded\r\n" \
                 f"User-Agent: {self._user_agent}\r\n" \
-                "Accept-Encoding: gzip, deflate, br\r\n" \
                 f"Content-Length: {len(body)}\r\n" \
                 f"Connection: close\r\n\r\n{body}\r\n\r\n"
         self._sock.send(bytes(query, "ISO-8859-1"))
         return self.get_response()
 
-    def head(self, uri):
-        query = f"HEAD {uri[2]} HTTP/1.0\r\n" \
-                f"Host: {uri[0]}\r\n" \
+    def head(self, data=""):
+        query = f"HEAD {self._address[2]} HTTP/1.0\r\n" \
+                f"Host: {self._address[0]}\r\n" \
                 f"User-Agent: {self._user_agent}\r\n" \
                 "Accept: */*\r\n" \
                 "Connection: close\r\n\r\n"
         self._sock.send(bytes(query, "ISO-8859-1"))
         return self.get_response()
 
-    def get_response(self):
-        response = []
+    def get_response(self) -> bytearray:
+        response = bytearray()
         while True:
             data = self._sock.recv(1024)
-            print(data.decode())
             if not data:
                 break
-            response.append(data)
+            response.extend(data)
+        self._sock.close()
         return response
 
-    def parse_response(self, mode: str, response: list):
+    def get_results(self, filename, mode: str, response: bytearray):
+        decoded_response = response.decode("utf_8", errors='ignore')
         if mode == "body":
-            for line in response:
-                if b"\r\n\r\n" in line:
+            index = decoded_response.find("\r\n\r\n")
+            decoded_response = decoded_response[index + 4:]
+        if filename != '':
+            with open(filename, 'w') as file:
+                file.write(decoded_response)
+        return decoded_response
+
+    def send_query(self):
+        self._sock.connect((self._address[0], self._address[1]))
+        return self.target_method(self._user_data)
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -85,11 +93,18 @@ def main():
     parser.add_argument("-a", "--agent", type=str, help="Указать свой USER_AGENT", default="Mozilla/5.0")
     parser.add_argument("-m", "--mode", type=str, choices=["all", "body"],
                         help="Режим вывода ответа от сервера", default="all")
+    parser.add_argument("-o", "--output", type=str, help="Записывает вывод в файл вместо stdout.", default="")
     methods.add_argument("-p", "--params", type=str, help="Указать GET-параметры", default="")
     methods.add_argument("-d", "--data", type=str, help="Отправить данные методом POST", default="")
     methods.add_argument("-I", "--head", action="store_true", help="Отправить запрос при помощи метода HEAD")
+
     cmd_args = parser.parse_args()
-    Client(cmd_args)
+    client = Client(cmd_args)
+    server_response = client.send_query()
+    result = client.get_results(cmd_args.output, cmd_args.mode, server_response)
+    if cmd_args.output == '':
+        print(result)
+
 
 if __name__ == '__main__':
     main()
