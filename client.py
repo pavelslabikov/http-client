@@ -1,16 +1,21 @@
 import socket
 import re
 import argparse
+import ssl
 
 URL_EXPR = r'https?://([\w\.]+)\.([a-z]{2,6}\.?)(/[\w\.]*)*/?'
 
 
 class Client:
     def __init__(self, args):
-        self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._user_agent = args.agent
         self._address = self.parse_link(args.url)
         self._user_data = args.data
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        if self._address[1] == 443:
+            self._sock = ssl.wrap_socket(sock)
+        else:
+            self._sock = sock
         if args.data != '':
             self.target_method = self.post
         elif args.head:
@@ -39,7 +44,7 @@ class Client:
                 "Accept: */*\r\n" \
                 "Connection: close\r\n\r\n"
         self._sock.send(bytes(query, "ISO-8859-1"))
-        return self.get_response()
+        return self.receive_response()
 
     def post(self, body: str):
         query = f"POST {self._address[2]} HTTP/1.0\r\n" \
@@ -50,7 +55,7 @@ class Client:
                 f"Content-Length: {len(body)}\r\n" \
                 f"Connection: close\r\n\r\n{body}\r\n\r\n"
         self._sock.send(bytes(query, "ISO-8859-1"))
-        return self.get_response()
+        return self.receive_response()
 
     def head(self, data=""):
         query = f"HEAD {self._address[2]} HTTP/1.0\r\n" \
@@ -59,9 +64,9 @@ class Client:
                 "Accept: */*\r\n" \
                 "Connection: close\r\n\r\n"
         self._sock.send(bytes(query, "ISO-8859-1"))
-        return self.get_response()
+        return self.receive_response()
 
-    def get_response(self) -> bytearray:
+    def receive_response(self) -> bytearray:
         response = bytearray()
         while True:
             data = self._sock.recv(1024)
@@ -83,6 +88,8 @@ class Client:
 
     def send_query(self):
         self._sock.connect((self._address[0], self._address[1]))
+        if type(self._sock) is ssl.SSLSocket:
+            self._sock.do_handshake()
         return self.target_method(self._user_data)
 
 
