@@ -4,7 +4,7 @@ import socket
 import ssl
 import sys
 from yarl import URL
-import errors
+import application.errors as errors
 
 HEADER_EXPR = r"[a-zA-z\-]+"
 

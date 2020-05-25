@@ -1,6 +1,6 @@
 import argparse
-import client as app
-import errors
+import application.client as app
+import application.errors as errors
 
 
 def main():
@@ -14,8 +14,8 @@ def main():
             client = app.Client(cmd_args)
         server_response = client.send_request()
         client.get_results(server_response)
-    except errors.APIError as error:
-        print(str(error))
+    except errors.APIError as e:
+        print(str(e))
         exit()
     except Exception as e:
         print(f'{type(e)}: {str(e)}')
