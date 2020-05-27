@@ -27,7 +27,7 @@ def set_up_arguments(parser):
     parser.add_argument("url", type=str, help="Ссылка на ресурс.")
     parser.add_argument("-a", "--agent", type=str, help="Указать свой USER_AGENT.", default="Mozilla/5.0")
     parser.add_argument("-o", "--output", type=str, metavar="FILENAME",
-                        help="Записывает message body в указанный файл.")
+                        help="Записывает ответ от сервера в указанный файл.")
     data_type.add_argument("-d", "--data", type=str, default="",
                            help="Данные, введённые в консоль, будут отправлены на web-сервер методом POST.")
     parser.add_argument("-M", "--method", type=str, choices=["GET", "POST", "HEAD", "OPTIONS"], metavar="METHOD",
