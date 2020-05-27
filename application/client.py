@@ -11,29 +11,34 @@ HEADER_EXPR = r"[a-zA-z\-]+"
 
 class Client:
     def __init__(self, cmd_args: dict):
+        self.req_headers = {}
         self._args = cmd_args
         self._user_data = self.extract_input_data()
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._url = URL(cmd_args["URL"])
-        if not self._url.host:  # TODO: Фиксануть проверку по хосту
+        if not self._url.host:
             raise errors.UrlParsingError(cmd_args["URL"])
         self.request = self.build_request()
 
     def build_request(self) -> bytes:
         """Формирование базовых, пользовательских заголовков, а так же для конкретных методов (POST)"""
-        request = bytearray(f"{self._args['Method']} {self._url.raw_path_qs} HTTP/1.1\r\n", "ISO-8859-1")
-        message_body = b"\r\n" + self._user_data.getvalue() + b"\r\n\r\n"
-        req_headers = {"Host": self._url.host,
-                       "User-Agent": self._args['Agent'],
-                       "Accept": "*/*",
-                       "Connection": "close"}
-        if self._args['Method'] == "POST" or self._args["Data"] or self._args["Upload"]:
-            req_headers["Content-Length"] = str(len(self._user_data.getvalue()))
-            req_headers["Content-Type"] = "text/plain"
+        target_method = self._args['Method']
+        if self._args["Data"] or self._args["Upload"]:
+            target_method = "POST"
+        request = bytearray(f"{target_method} {self._url.raw_path_qs} HTTP/1.1\r\n", "ISO-8859-1")
+        message_body = b"\r\n" + self._user_data.read() + b"\r\n\r\n"
+        self._user_data.seek(0)
+        self.req_headers = {"Host": self._url.host,
+                            "User-Agent": self._args['Agent'],
+                            "Accept": "*/*",
+                            "Connection": "close"}
+        if target_method == "POST":
+            self.req_headers["Content-Length"] = str(len(self._user_data.read()))
+            self.req_headers["Content-Type"] = "text/plain"
         for user_header in self._args['Headers']:
             parsed_header = Client.parse_user_header(user_header)
-            req_headers[parsed_header] = user_header[1]
-        for header, value in req_headers.items():
+            self.req_headers[parsed_header] = user_header[1]
+        for header, value in self.req_headers.items():
             if self._args['Verbose']:
                 print(f"-> {header}: {value}")
             request += bytes(f"{header}: {value}\r\n", "ISO-8859-1")
@@ -69,8 +74,10 @@ class Client:
     def get_results(self, response: io.BytesIO) -> io.BytesIO:
         filename = self._args["Output"]
         response.seek(0)
+        if self._args["Debug"]:
+            return response
         part = response.read(1024)
-        if self._args["Mode"] == "body" and self._args["Method"] != "HEAD" and self._args["Method"] != "OPTIONS":
+        if not self._args["Include"] and self._args["Method"] != "HEAD" and self._args["Method"] != "OPTIONS":
             index = part.find(b"\r\n\r\n")
             while index == -1:
                 part = response.read(1024)
@@ -85,8 +92,8 @@ class Client:
             self.exit_client()
         while part:
             sys.stdout.buffer.write(part)
+            sys.stderr.flush()
             part = response.read(1024)
-        return response
 
     def send_request(self):
         try:

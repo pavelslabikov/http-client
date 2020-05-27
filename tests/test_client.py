@@ -1,84 +1,129 @@
 import unittest
-from client import Client, ClientSecured
-import socket
-from arguments import ArgumentsCreator
-from errors import *
+from application.client import Client, ClientSecured
+import application.errors as errors
+import warnings
 
 
 class TestClientEfficiency(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        super().setUpClass()
-        cls.parser = ArgumentsCreator().set_up_arguments()
+    def setUp(self) -> None:
+        super().setUp()
+        self.default_args = {
+            "Agent": "",
+            "URL": "",
+            "Method": "",
+            "Data": "",
+            "Output": "",
+            "Include": False,
+            "Headers": [],
+            "Verbose": False,
+            "Upload": "",
+            "Debug": True
+        }
+        warnings.simplefilter("ignore", ResourceWarning)
 
-    def test_https_domains(self):
-        cases = [["-X", "HEAD", "https://www.python.org/"],
-                 ["https://ulearn.me/"]]
+    def test_output_modes(self):
+        cases = [{"Method": "HEAD", "URL": "http://ptsv2.com/"},
+                 {"Method": "OPTIONS", "URL": "http://ptsv2.com/"},
+                 {"Method": "POST", "Data": "test", "Include": True, "URL": "http://ptsv2.com/"},
+                 {"Include": True, "URL": "http://ptsv2.com/"}]
+        other_cases = [{"Output": "test_file.txt", "Method": "POST", "Data": "test", "URL": "http://ptsv2.com/"},
+                       {"Output": "test_file.txt", "URL": "http://ptsv2.com/"},
+                       {"Output": "test_file.txt", "Data": "test", "URL": "http://ptsv2.com/"}]
         for test_case in cases:
-            curr_args = self.parser.parse_args(test_case)
-            client = ClientSecured(curr_args)
+            actual = self.get_actual_response(test_case)
+            self.assertTrue(actual.startswith(b"HTTP/1.1 200 OK"))
+        self.setUp()
+
+        for test_case in other_cases:
+            self.prepare_args(test_case)
+            self.default_args["Debug"] = False
+            client = Client(self.default_args)
             server_response = client.send_request()
-            result = client.get_results("", "", server_response)
-            self.assertTrue(result.startswith("HTTP/1.1 200 OK"))
-
-    def test_http_domains(self):
-        cases = [["-X", "HEAD", "http://www.ng.ru/"],
-                 ["http://kremlin.ru/"]]
-        for test_case in cases:
-            curr_args = self.parser.parse_args(test_case)
-            client = Client(curr_args)
-            server_response = client.send_request()
-            result = client.get_results("", "", server_response)
-            self.assertTrue(result.startswith("HTTP/1.1 200 OK"))
-
-    def test_adding_wrong_headers(self):
-        cases = [["-H", "123:", "content", "http://ptsv2.com/"],
-                 ["-H", "?#$!@:", "content", "http://ptsv2.com/"]]
-        for test_case in cases:
-            current_args = self.parser.parse_args(test_case)
             try:
-                Client(current_args)
-            except HeaderFormatError:
-                assert True
+                client.get_results(server_response)
             except SystemExit:
                 pass
+            with open("test_file.txt", "rb") as file:
+                actual = file.read(64)
+            self.assertTrue(actual.startswith(b"<!DOCTYPE html>"))
+
+    def test_https_domains(self):
+        cases = [{"Method": "HEAD", "URL": "https://stackoverflow.com/"},
+                 {"Method": "HEAD", "URL": "https://ulearn.me/"},
+                 {"Method": "OPTIONS", "URL": "https://www.microsoft.com/ru-ru/"}]
+        for test_case in cases:
+            self.prepare_args(test_case)
+            client = ClientSecured(self.default_args)
+            server_response = client.send_request()
+            actual = client.get_results(server_response).read(64)
+            self.assertTrue(actual.startswith(b"HTTP/1.1 200 OK"))
+
+    def test_http_methods(self):
+        cases = [{"Method": "HEAD", "URL": "http://ptsv2.com/"},
+                 {"Method": "OPTIONS", "URL": "http://ptsv2.com/"},
+                 {"Method": "POST", "Data": "test", "URL": "http://ptsv2.com/"}]
+        for test_case in cases:
+            actual = self.get_actual_response(test_case)
+            self.assertTrue(actual.startswith(b"HTTP/1.1 200 OK"))
+
+    def test_adding_wrong_headers(self):
+        cases = [{"Headers": [["123", "text"]], "URL": "http://ptsv2.com/"},
+                 {"Headers": [["!#$%", "text"]], "URL": "http://ptsv2.com/"},
+                 {"Headers": [["Correct", "header"], ["!#$%", "text"]], "URL": "http://ptsv2.com/"},
+                 {"Headers": [["123", "456"], ["!#$%", "text"]], "URL": "http://ptsv2.com/"}]
+        for test_case in cases:
+            self.prepare_args(test_case)
+            try:
+                Client(self.default_args)
+            except SystemExit:
+                pass
+            except errors.HeaderFormatError:
+                assert True
             else:
                 assert False
 
     def test_changing_user_agent(self):
-        cases = [["-a", "Chrome", "http://ptsv2.com/"],
-                 ["-H", "User-Agent:", "Chrome", "http://ptsv2.com/"]]
+        cases = [{"Headers": [["User-Agent", "sample"]], "URL": "http://ptsv2.com/"},
+                 {"Headers": [["User-Agent", "sample"]], "URL": "http://ptsv2.com/"},
+                 {"Agent": "sample", "URL": "http://ptsv2.com/"}]
         for test_case in cases:
-            curr_args = self.parser.parse_args(test_case)
-            client = Client(curr_args)
-            self.assertTrue(b"User-Agent: Chrome" in client.request)
-            server_response = client.send_request()
-            client.get_results("", "", server_response)
+            self.prepare_args(test_case)
+            client = Client(self.default_args)
+            self.assertTrue(client.req_headers["User-Agent"] == "sample")
 
     def test_wrong_format_url(self):
-        cases = [["12345abcdef"],
-                 ["-X", "HEAD", "pslabikov@mail.ru"],
-                 [""], ["google.com"]]
+        cases = [{"URL": "12345"},
+                 {"URL": "!@#$%^&"}]
         for test_case in cases:
-            curr_args = self.parser.parse_args(test_case)
+            self.prepare_args(test_case)
             try:
-                Client(curr_args)
-            except HeaderFormatError:
-                assert True
+                Client(self.default_args)
             except SystemExit:
                 pass
+            except errors.UrlParsingError:
+                assert True
             else:
                 assert False
 
     def test_changing_adding_headers(self):
-        cases = [["-X", "POST", "-H", "Content-Type:", "text/plain", "http://ptsv2.com/"],
-                 ["-X", "HEAD", "-H", "Cookie:", "a=3", "http://ptsv2.com/"]]
+        cases = [{"Headers": [["Connection", "keep-alive"]], "URL": "http://ptsv2.com/"},
+                 {"Headers": [["New-Header", "123"]], "URL": "http://ptsv2.com/"},
+                 {"Headers": [["New-Header", "123"], ["Connection", "keep-alive"]], "URL": "http://ptsv2.com/"}]
         for test_case in cases:
-            curr_args = self.parser.parse_args(test_case)
-            client = Client(curr_args)
-            self.assertTrue(bytes(f"{test_case[3]} {test_case[4]}", "ISO-8859-1") in client.request)
-            server_response = client.send_request()
-            client.get_results("", "", server_response)
+            self.prepare_args(test_case)
+            client = Client(self.default_args)
+            for header in test_case["Headers"]:
+                self.assertEqual(client.req_headers[header[0]], header[1])
+
+    def get_actual_response(self, test_case) -> bytes:
+        self.prepare_args(test_case)
+        client = Client(self.default_args)
+        server_response = client.send_request()
+        return client.get_results(server_response).read(128)
+
+    def prepare_args(self, test_case):
+        for header, value in test_case.items():
+            self.default_args[header] = value
 
 
 if __name__ == '__main__':

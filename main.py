@@ -6,7 +6,7 @@ import application.errors as errors
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     set_up_arguments(parser)
-    cmd_args = extract_args(parser.parse_args())
+    cmd_args = extract_arguments(parser.parse_args())
     try:
         if cmd_args["URL"].startswith('https'):
             client = app.ClientSecured(cmd_args)
@@ -38,21 +38,23 @@ def set_up_arguments(parser):
                         help="Изменить или добавить заголовок (требует 2 аргумента). Формат ввода: <header> <value>")
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="Выводит отправляемые заголовки на консоль.")
-    parser.add_argument("-m", "--mode", type=str, choices=["all", "body"], default="body",
+    parser.add_argument("-i", "--include", action="store_true",
                         help="Выводить ответ от сервера полностью/только message body (по умолчанию body)")
+    parser.add_argument("-D", "--debug", action="store_true", help="Режим отладки для тестов.")
 
 
-def extract_args(args) -> dict:
+def extract_arguments(args) -> dict:
     return {
         "Agent": args.agent,
         "URL": args.url,
         "Method": args.method,
         "Data": args.data,
         "Output": args.output,
-        "Mode": args.mode,
+        "Include": args.include,
         "Headers": args.header,
         "Verbose": args.verbose,
-        "Upload": args.upload
+        "Upload": args.upload,
+        "Debug": args.debug
     }
 
 
