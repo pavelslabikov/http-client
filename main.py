@@ -44,6 +44,10 @@ def set_up_arguments(parser):
 
 
 def extract_arguments(args) -> dict:
+    if args.data or args.upload:
+        args.method = "POST"
+    if args.method == "HEAD" or args.method == "OPTIONS":
+        args.include = True
     return {
         "Agent": args.agent,
         "URL": args.url,
