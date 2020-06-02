@@ -7,12 +7,12 @@ from yarl import URL
 import application.errors as errors
 
 HEADER_EXPR = r"[a-zA-z\-]+"
-STARTING_LINE_EXPR = r"HTTP/1\.[01] (\d\d\d) \w+"
+STARTING_LINE_EXPR = r"HTTP/1\.[01] (\d\d\d)[ \w]*"
 
 
 class Request:
-    def __init__(self, method: str, uri: URL, headers: list, input_data, user_agent: str, verbose: bool):
-        self.message_body = input_data.read()  # TODO: Исправить полное чтение потока
+    def __init__(self, method: str, uri: URL, headers: list, input_data, user_agent="Mozilla/5.0", verbose=False):
+        self.message_body = input_data.read()
         input_data.close()
         self.method = method
         self.verbose = verbose
@@ -64,14 +64,14 @@ class Response:
 
     @classmethod
     def from_bytes(cls, raw_response: io.BytesIO):
-        raw_response.seek(0)
-        part = raw_response.read(1024)  # TODO: Фиксануть чтение по 1024 байт
         raw_headers = bytearray()
         message_body = io.BytesIO()
+        part = raw_response.read(2048)
         index = part.find(b"\r\n\r\n")
-        while index == -1:
+        if index == -1:
             raw_headers += part
             part = raw_response.read(1024)
+            index = part.find(b"\r\n\r\n")
         raw_headers += part[:index]
         message_body.write(part[index + 4:])
         part = raw_response.read(1024)
@@ -79,34 +79,32 @@ class Response:
             message_body.write(part)
             part = raw_response.read(1024)
         message_body.seek(0)
-        http_status_code = cls.get_status(raw_headers)
-        parsed_headers = cls.parse_headers(raw_headers)
+        headers = raw_headers.split(b"\r\n")
+        http_status_code = cls.get_status(headers[0])
+        parsed_headers = cls.parse_headers(headers[1:])
         return Response(http_status_code, parsed_headers, message_body, raw_headers)
 
     @classmethod
-    def parse_headers(cls, raw_headers: bytes) -> dict:
+    def parse_headers(cls, raw_headers: list) -> dict:
         """Парсинг заголовков из байтов в словарь"""
         result = {}
-        headers_list = raw_headers.split(b"\r\n")
-        for header in headers_list[1:]:
-            new_header = str(header).split(":")
-            result[new_header[0]] = new_header[1]
+        for header in raw_headers:
+            name, value = header.decode().split(":", 1)
+            result[name] = value
         return result
 
     @classmethod
-    def get_status(cls, raw_headers: bytes) -> int:
+    def get_status(cls, line: bytes) -> int:
         """Извлечение кода ответа от сервера из стартовой строки"""
-        index = raw_headers.find(b"\r\n")
-        result = re.search(STARTING_LINE_EXPR, str(raw_headers[:index]))
+        result = re.search(STARTING_LINE_EXPR, str(line))
         if not result:
-            pass  # TODO: throw exception
+            raise errors.IncorrectStartingLineError(line.decode())
         return int(result.group(1))
 
 
 class Client:
     def __init__(self, args: dict):
         self._output_mode = args["Output"]
-        self._debug_mode = args["Debug"]
         self._include = args["Include"]
         self._user_data = self.extract_input_data(args["Upload"], args["Data"])
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -123,7 +121,7 @@ class Client:
             return open(filename, "br")
         return io.BytesIO(bytes(cmd_data, "ISO-8859-1"))
 
-    def send_request(self):
+    def send_request(self) -> Response:
         try:
             self._sock.connect((self._url.host, self._url.port))
             self._sock.sendall(bytes(self.request))
@@ -132,19 +130,18 @@ class Client:
         return self.receive_response()
 
     def receive_response(self) -> Response:
-        response = io.BytesIO()
+        server_response = io.BytesIO()
         while True:
             data = self._sock.recv(1024)
             if not data:
                 break
-            response.write(data)
+            server_response.write(data)
         self._sock.close()
-        return Response.from_bytes(response)
+        server_response.seek(0)
+        return Response.from_bytes(server_response)
 
-    def get_results(self, response: Response) -> Response:
+    def get_results(self, response: Response):
         filename = self._output_mode
-        if self._debug_mode:
-            return response
         output = sys.stdout.buffer
         if filename:
             output = open(filename, 'bw')

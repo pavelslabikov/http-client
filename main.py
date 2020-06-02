@@ -40,7 +40,6 @@ def set_up_arguments(parser):
                         help="Выводит отправляемые заголовки на консоль.")
     parser.add_argument("-i", "--include", action="store_true",
                         help="Выводить ответ от сервера полностью/только message body (по умолчанию body)")
-    parser.add_argument("-D", "--debug", action="store_true", help="Режим отладки для тестов.")
 
 
 def extract_arguments(args) -> dict:
@@ -58,7 +57,6 @@ def extract_arguments(args) -> dict:
         "Headers": args.header,
         "Verbose": args.verbose,
         "Upload": args.upload,
-        "Debug": args.debug
     }
 
 

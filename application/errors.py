@@ -27,3 +27,13 @@ class ConnectingError(APIError, socket.gaierror):
 
     def __str__(self):
         return f"Не удалось подключиться по заданному адресу: {self.arg}"
+
+
+class IncorrectStartingLineError(APIError):
+    def __init__(self, line: str):
+        self.arg = line
+
+    def __str__(self):
+        return f"Некорректная стартовая строка ответа от сервера: {self.arg}"
+
+
