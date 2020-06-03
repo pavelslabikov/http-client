@@ -7,7 +7,8 @@ from yarl import URL
 import application.errors as errors
 
 HEADER_EXPR = r"[a-zA-z\-]+"
-STARTING_LINE_EXPR = r"HTTP/1\.[01] (\d\d\d)[ \w]*"
+STARTING_LINE_EXPR = r"(HTTP/1\.[01]) (\d\d\d)([ \w]*)"
+CHUNK_SIZE = 1024
 
 
 class Request:
@@ -56,63 +57,69 @@ class Request:
 
 
 class Response:
-    def __init__(self, status_code: int, headers: dict, message_body: io.BytesIO, raw_headers: bytes):
-        self.status_code = status_code
+    def __init__(self, proto: str, code: int, phrase: str, headers: dict,
+                 message_body: bytes, content_length: int, content_type: str):
+        self.protocol = proto
+        self.reason_phrase = phrase
+        self.status_code = code
         self.headers = headers
         self.message_body = message_body
-        self.headers_as_bytes = raw_headers
+        self._raw_headers = self.get_raw_headers()
+        self.content_length = content_length
+        self.content_type = content_type
 
-    @classmethod
-    def from_bytes(cls, raw_response: io.BytesIO):
-        raw_headers = bytearray()
-        message_body = io.BytesIO()
-        part = raw_response.read(2048)
-        index = part.find(b"\r\n\r\n")
-        if index == -1:
-            raw_headers += part
-            part = raw_response.read(1024)
-            index = part.find(b"\r\n\r\n")
-        raw_headers += part[:index]
-        message_body.write(part[index + 4:])
-        part = raw_response.read(1024)
-        while part:
-            message_body.write(part)
-            part = raw_response.read(1024)
-        message_body.seek(0)
-        headers = raw_headers.split(b"\r\n")
-        http_status_code = cls.get_status(headers[0])
-        parsed_headers = cls.parse_headers(headers[1:])
-        return Response(http_status_code, parsed_headers, message_body, raw_headers)
+    @property
+    def raw_headers(self):
+        return self._raw_headers
 
-    @classmethod
-    def parse_headers(cls, raw_headers: list) -> dict:
-        """Парсинг заголовков из байтов в словарь"""
-        result = {}
-        for header in raw_headers:
-            name, value = header.decode().split(":", 1)
-            result[name] = value
+    @property
+    def raw_starting_line(self):
+        return f"{self.protocol} {self.status_code} {self.reason_phrase}\r\n".encode()
+
+    def get_raw_headers(self) -> bytes:
+        result = bytearray()
+        for name, value in self.headers.items():
+            result += name.encode() + b":" + value.encode() + b"\r\n"
+        result += b"\r\n"
         return result
 
     @classmethod
-    def get_status(cls, line: bytes) -> int:
-        """Извлечение кода ответа от сервера из стартовой строки"""
-        result = re.search(STARTING_LINE_EXPR, str(line))
+    def from_bytes(cls, raw_response: io.BytesIO):
+        parsed_headers = {}
+        proto, code, phrase = cls.parse_starting_line(raw_response.readline())
+        line = raw_response.readline().rstrip(b"\r\n")
+        while line:
+            name, value = line.decode().split(":", 1)
+            parsed_headers[name.lower()] = value
+            line = raw_response.readline().rstrip(b"\r\n")
+        content_length = int(parsed_headers.get("content-length", 0))
+        content_type = parsed_headers.get("content-type", "text/plain")
+        message_body = raw_response.read(content_length)
+        return Response(proto, int(code), phrase.lstrip(), parsed_headers, message_body, content_length, content_type)
+
+    @classmethod
+    def parse_starting_line(cls, line: bytes):
+        """Извлечение версии протокола, кода ответа и пояснения из стартовой строки ответа."""
+        result = re.search(STARTING_LINE_EXPR, line.rstrip(b"\r\n").decode())
         if not result:
             raise errors.IncorrectStartingLineError(line.decode())
-        return int(result.group(1))
+        return result.groups()
 
 
 class Client:
-    def __init__(self, args: dict):
-        self._output_mode = args["Output"]
-        self._include = args["Include"]
-        self._user_data = self.extract_input_data(args["Upload"], args["Data"])
+    def __init__(self, url: str, method: str, cmd_data: str, upload_file: str, output_file: str, include: bool,
+                 user_headers: list, verbose: bool, user_agent: str, timeout: float, redirect: bool):
+        self._output_mode = output_file
+        self._redirect = redirect
+        self._include = include
+        self._timeout = timeout
+        self._user_data = self.extract_input_data(upload_file, cmd_data)
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._url = URL(args["URL"])
+        self._sock.settimeout(timeout)
+        self._url = URL(url)
         if not self._url.host:
-            raise errors.UrlParsingError(args["URL"])
-        self.request = Request(args["Method"], self._url, args["Headers"], self._user_data,
-                               args["Agent"], args["Verbose"])
+            raise errors.UrlParsingError(url)
+        self.request = Request(method, self._url, user_headers, self._user_data, user_agent, verbose)
 
     @staticmethod
     def extract_input_data(filename: str, cmd_data: str):
@@ -123,45 +130,64 @@ class Client:
 
     def send_request(self) -> Response:
         try:
-            self._sock.connect((self._url.host, self._url.port))
+            self._sock.connect((self.request.url.host, self.request.url.port))
             self._sock.sendall(bytes(self.request))
         except socket.gaierror:
-            raise errors.ConnectingError(self._url.host, self._url.port)
+            raise errors.ConnectingError(self.request.url.host, self.request.url.port)
         return self.receive_response()
 
     def receive_response(self) -> Response:
-        server_response = io.BytesIO()
+        """Получение ответа от сервера и переадресация на новый web-server."""
+        raw_response = io.BytesIO()
         while True:
-            data = self._sock.recv(1024)
+            data = self._sock.recv(CHUNK_SIZE)
             if not data:
                 break
-            server_response.write(data)
+            raw_response.write(data)
+        raw_response.seek(0)
+        response = Response.from_bytes(raw_response)
+        if self._redirect and 301 <= response.status_code <= 307:
+            self.reconnect_socket(response.headers["location"].lstrip())
+            response = self.send_request()
+        return response
+
+    def reconnect_socket(self, url: str):
+        """Переподключение существующего сокета к новому адресу при переадресации."""
+        new_url = URL(url)
+        if not new_url.host:
+            raise errors.UrlParsingError(url)
+        self.request.url = new_url
+        self.request.headers["Host"] = new_url.host
         self._sock.close()
-        server_response.seek(0)
-        return Response.from_bytes(server_response)
+        self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._sock.settimeout(self._timeout)
+        if new_url.scheme == "https":
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+            self._sock = context.wrap_socket(self._sock)
 
     def get_results(self, response: Response):
+        """Вывод ответа от сервера в файл или на stdout."""
         filename = self._output_mode
         output = sys.stdout.buffer
         if filename:
             output = open(filename, 'bw')
         if self._include:
-            output.write(response.headers_as_bytes)
-        part = response.message_body.read(1024)
-        while part:
-            output.write(part)
-            part = response.message_body.read(1024)
+            output.write(response.raw_starting_line + response.raw_headers)
+        output.write(response.message_body)
         output.close()
         self.exit_client()
 
     def exit_client(self):
+        """Завершение работы клиента."""
         self._sock.close()
         exit()
 
 
 class ClientSecured(Client):
-    def __init__(self, cmd_args):
-        super().__init__(cmd_args)
+    def __init__(self, cmd_args: list):
+        super().__init__(*cmd_args)
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE

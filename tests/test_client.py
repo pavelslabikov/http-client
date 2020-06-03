@@ -29,7 +29,7 @@ class TestResponseMethods(unittest.TestCase):
                     if header == "":
                         continue
                     name, value = header.split(":")
-                    expected[name] = value
+                    expected[name.lower()] = value
                 self.assertDictEqual(actual, expected)
 
     def test_getting_status(self):
@@ -43,12 +43,12 @@ class TestResponseMethods(unittest.TestCase):
 
     def test_parsing_message_body(self):
         starting_line = b"HTTP/1.1 101 OK\r\n"
-        cases = [b"Server: test\r\n\r\n123", b"Empty: body\r\n\r\n",
-                 b"first:header\r\nsecond:header\r\n\r\n123"]
+        cases = [b"Content-Length: 3\r\n\r\n123", b"Empty: body\r\n\r\n",
+                 b"Content-Length: 3\r\nsecond:header\r\n\r\n123"]
         for test_case in cases:
             with self.subTest(case=test_case):
                 response_message = io.BytesIO(starting_line + test_case)
-                actual_body = Response.from_bytes(response_message).message_body.getvalue()
+                actual_body = Response.from_bytes(response_message).message_body
                 expected_body = test_case[test_case.find(b"\r\n\r\n") + 4:]
                 self.assertEqual(actual_body, expected_body)
 
@@ -89,53 +89,55 @@ class TestClientEfficiency(unittest.TestCase):
     def setUp(self) -> None:
         super().setUp()
         self.default_args = {
-            "Agent": "",
-            "URL": "https://example.com/",
-            "Method": "GET",
-            "Data": "",
-            "Output": "",
-            "Include": False,
-            "Headers": [],
-            "Verbose": False,
-            "Upload": "",
+            "url": "https://example.com/",
+            "method": "GET",
+            "data": "",
+            "upload": "",
+            "output": "",
+            "include": False,
+            "headers": [],
+            "verbose": False,
+            "agent": "",
+            "timeout": None,
+            "redirect": False
         }
         warnings.simplefilter("ignore", ResourceWarning)
 
     def test_upload_modes(self):
         with mock.patch("application.client.Client.extract_input_data", return_value=io.BytesIO(b"test")), \
-                self.subTest("Return value - BytesIO"):
-            actual_user_data = Client(self.default_args).request.message_body
+             self.subTest("Return value - BytesIO"):
+            actual_user_data = Client(*self.default_args.values()).request.message_body
             self.assertEqual(actual_user_data, b"test")
 
         with mock.patch("application.client.Client.extract_input_data", return_value=open("test_file.txt", "br")), \
-                self.subTest("Return value - FileIO"):
-            actual_user_data = Client(self.default_args).request.message_body
+             self.subTest("Return value - FileIO"):
+            actual_user_data = Client(*self.default_args.values()).request.message_body
             self.assertEqual(actual_user_data, b"test")
 
     def test_http_methods(self):
-        cases = [{"Method": "HEAD"}, {"Method": "OPTIONS"},
-                 {"Method": "POST", "Data": "test"}, {"Method": "GET"}]
+        cases = [{"method": "HEAD"}, {"method": "OPTIONS"},
+                 {"method": "POST", "data": "test"}, {"method": "GET"}]
         for test_case in cases:
             with self.subTest(test_case):
                 self.default_args.update(test_case)
-                actual_method = Client(self.default_args).request.method
-                self.assertEqual(actual_method, test_case["Method"])
+                actual_method = Client(*self.default_args.values()).request.method
+                self.assertEqual(actual_method, test_case["method"])
 
     def test_wrong_format_url(self):
-        cases = [{"URL": "12345"}, {"URL": "!@#$%^&"},
-                 {"URL": ""}, {"URL": "www.vk.com/im"}, {"URL": "https://"}]
+        cases = [{"url": "12345"}, {"url": "!@#$%^&"},
+                 {"url": ""}, {"url": "www.vk.com/im"}, {"url": "https://"}]
         for test_case in cases:
             self.default_args.update(test_case)
             with self.assertRaises(errors.UrlParsingError):
-                Client(self.default_args)
+                Client(*self.default_args.values())
 
     def test_changing_user_agent(self):
-        cases = [{"Agent": "test"}, {"Headers": [["User-Agent", "test"]]},
-                 {"Headers": [["user-agent", "test"], ["Connection", "keep-alive"]]}]
+        cases = [{"agent": "test"}, {"headers": [["User-Agent", "test"]]},
+                 {"headers": [["user-agent", "test"], ["connection", "keep-alive"]]}]
         for test_case in cases:
             with self.subTest(case=test_case):
                 self.default_args.update(test_case)
-                actual_agent = Client(self.default_args).request.user_agent
+                actual_agent = Client(*self.default_args.values()).request.user_agent
                 self.assertEqual(actual_agent, "test")
 
 
@@ -143,40 +145,58 @@ class TestClientNetworkInteraction(unittest.TestCase):
     def setUp(self) -> None:
         super().setUp()
         self.default_args = {
-            "Agent": "",
-            "URL": "",
-            "Method": "GET",
-            "Data": "",
-            "Output": "",
-            "Include": False,
-            "Headers": [],
-            "Verbose": False,
-            "Upload": ""
+            "url": "",
+            "method": "GET",
+            "data": "",
+            "upload": "",
+            "output": "",
+            "include": False,
+            "headers": [],
+            "verbose": False,
+            "agent": "",
+            "timeout": None,
+            "redirect": False
         }
         warnings.simplefilter("ignore", ResourceWarning)
 
     def test_https_domains(self):
-        cases = [{"URL": "https://m.vk.com/"},
-                 {"Method": "HEAD", "URL": "https://stackoverflow.com/"},
-                 {"Method": "POST", "URL": "https://ulearn.me/"},
-                 {"Method": "OPTIONS", "URL": "https://www.microsoft.com/ru-ru/"}]
+        cases = [{"url": "https://m.vk.com/"},
+                 {"method": "HEAD", "url": "https://stackoverflow.com/"},
+                 {"method": "POST", "url": "https://ulearn.me/"},
+                 {"method": "OPTIONS", "url": "https://www.microsoft.com/ru-ru/"}]
         for test_case in cases:
-            with self.subTest(test_case["URL"]):
+            with self.subTest(test_case["url"]):
                 self.default_args.update(test_case)
-                client = ClientSecured(self.default_args)
-                actual_status = client.send_request().status_code
+                client = ClientSecured(self.default_args.values())
+                response = client.send_request()
+                actual_status, actual_phrase = response.status_code, response.reason_phrase
                 self.assertEqual(actual_status, 200)
+                self.assertEqual(actual_phrase, "OK")
 
     def test_http_domains(self):
-        cases = [{"URL": "http://htmlbook.ru/"},
-                 {"Method": "HEAD", "URL": "http://gov.ru/"},
-                 {"Method": "POST", "URL": "http://ptsv2.com/"}]
+        cases = [{"url": "http://htmlbook.ru/"},
+                 {"method": "HEAD", "url": "http://gov.ru/"},
+                 {"method": "POST", "url": "http://ptsv2.com/"}]
         for test_case in cases:
-            with self.subTest(test_case["URL"]):
+            with self.subTest(test_case["url"]):
                 self.default_args.update(test_case)
-                client = Client(self.default_args)
-                actual_status = client.send_request().status_code
+                client = Client(*self.default_args.values())
+                response = client.send_request()
+                actual_status, actual_phrase = response.status_code, response.reason_phrase
                 self.assertEqual(actual_status, 200)
+                self.assertEqual(actual_phrase, "OK")
+
+    def test_redirection(self):
+        cases = [{"url": "https://vk.com/", "redirect": True},
+                 {"url": "https://google.com/", "redirect": True}]
+        for test_case in cases:
+            with self.subTest(test_case["url"]):
+                self.default_args.update(test_case)
+                client = ClientSecured(self.default_args.values())
+                response = client.send_request()
+                actual_status, actual_phrase = response.status_code, response.reason_phrase
+                self.assertEqual(actual_status, 200)
+                self.assertEqual(actual_phrase, "OK")
 
 
 if __name__ == '__main__':
