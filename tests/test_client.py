@@ -1,6 +1,6 @@
 import unittest
 import unittest.mock as mock
-from application.client import Client, ClientSecured, Response, Request
+from application.client import Client, Response, Request
 import application.errors as errors
 import warnings
 import io
@@ -167,7 +167,7 @@ class TestClientNetworkInteraction(unittest.TestCase):
         for test_case in cases:
             with self.subTest(test_case["url"]):
                 self.default_args.update(test_case)
-                client = ClientSecured(self.default_args.values())
+                client = Client(*self.default_args.values())
                 response = client.send_request()
                 actual_status, actual_phrase = response.status_code, response.reason_phrase
                 self.assertEqual(actual_status, 200)
@@ -175,8 +175,8 @@ class TestClientNetworkInteraction(unittest.TestCase):
 
     def test_http_domains(self):
         cases = [{"url": "http://htmlbook.ru/"},
-                 {"method": "HEAD", "url": "http://gov.ru/"},
-                 {"method": "POST", "url": "http://ptsv2.com/"}]
+                 {"url": "http://gov.ru/"},
+                 {"url": "http://tadviser.ru/", "redirect": True}]
         for test_case in cases:
             with self.subTest(test_case["url"]):
                 self.default_args.update(test_case)
@@ -192,7 +192,7 @@ class TestClientNetworkInteraction(unittest.TestCase):
         for test_case in cases:
             with self.subTest(test_case["url"]):
                 self.default_args.update(test_case)
-                client = ClientSecured(self.default_args.values())
+                client = Client(*self.default_args.values())
                 response = client.send_request()
                 actual_status, actual_phrase = response.status_code, response.reason_phrase
                 self.assertEqual(actual_status, 200)

@@ -41,10 +41,7 @@ if __name__ == '__main__':
     set_up_arguments(parser)
     cmd_args = extract_arguments(parser.parse_args())
     try:
-        if cmd_args[0].startswith('https'):
-            client = app.ClientSecured(cmd_args)
-        else:
-            client = app.Client(*cmd_args)
+        client = app.Client(*cmd_args)
         server_response = client.send_request()
         client.get_results(server_response)
     except errors.APIError as e:

@@ -7,7 +7,7 @@ from yarl import URL
 import application.errors as errors
 
 HEADER_EXPR = r"[a-zA-z\-]+"
-STARTING_LINE_EXPR = r"(HTTP/1\.[01]) (\d\d\d)([ \w]*)"
+STARTING_LINE_EXPR = r"(?P<proto>HTTP/1\.[01]) (?P<code>\d{3})(?P<phrase>[ \w]*)"
 CHUNK_SIZE = 1024
 
 
@@ -64,24 +64,16 @@ class Response:
         self.status_code = code
         self.headers = headers
         self.message_body = message_body
-        self._raw_headers = self.get_raw_headers()
         self.content_length = content_length
         self.content_type = content_type
 
     @property
     def raw_headers(self):
-        return self._raw_headers
+        return "\r\n".join([f"{header}:{value}" for header, value in self.headers.items()]).encode()
 
     @property
     def raw_starting_line(self):
-        return f"{self.protocol} {self.status_code} {self.reason_phrase}\r\n".encode()
-
-    def get_raw_headers(self) -> bytes:
-        result = bytearray()
-        for name, value in self.headers.items():
-            result += name.encode() + b":" + value.encode() + b"\r\n"
-        result += b"\r\n"
-        return result
+        return f"{self.protocol} {self.status_code} {self.reason_phrase}".encode()
 
     @classmethod
     def from_bytes(cls, raw_response: io.BytesIO):
@@ -95,7 +87,7 @@ class Response:
         content_length = int(parsed_headers.get("content-length", 0))
         content_type = parsed_headers.get("content-type", "text/plain")
         message_body = raw_response.read(content_length)
-        return Response(proto, int(code), phrase.lstrip(), parsed_headers, message_body, content_length, content_type)
+        return Response(proto, code, phrase, parsed_headers, message_body, content_length, content_type)
 
     @classmethod
     def parse_starting_line(cls, line: bytes):
@@ -103,7 +95,10 @@ class Response:
         result = re.search(STARTING_LINE_EXPR, line.rstrip(b"\r\n").decode())
         if not result:
             raise errors.IncorrectStartingLineError(line.decode())
-        return result.groups()
+        return result.group("proto"), int(result.group("code")), result.group("phrase").lstrip()
+
+    def __bytes__(self):
+        return b"\r\n".join([self.raw_starting_line, self.raw_headers, self.message_body])
 
 
 class Client:
@@ -114,12 +109,22 @@ class Client:
         self._include = include
         self._timeout = timeout
         self._user_data = self.extract_input_data(upload_file, cmd_data)
-        self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._sock.settimeout(timeout)
         self._url = URL(url)
         if not self._url.host:
             raise errors.UrlParsingError(url)
+        self._sock = self.initialize_socket(self._url.scheme, timeout)
         self.request = Request(method, self._url, user_headers, self._user_data, user_agent, verbose)
+
+    @staticmethod
+    def initialize_socket(scheme: str, timeout: float) -> socket.socket:
+        result_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        result_socket.settimeout(timeout)
+        if scheme == "https":
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+            return context.wrap_socket(result_socket)
+        return result_socket
 
     @staticmethod
     def extract_input_data(filename: str, cmd_data: str):
@@ -159,13 +164,7 @@ class Client:
         self.request.url = new_url
         self.request.headers["Host"] = new_url.host
         self._sock.close()
-        self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._sock.settimeout(self._timeout)
-        if new_url.scheme == "https":
-            context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-            context.check_hostname = False
-            context.verify_mode = ssl.CERT_NONE
-            self._sock = context.wrap_socket(self._sock)
+        self._sock = self.initialize_socket(new_url.scheme, self._timeout)
 
     def get_results(self, response: Response):
         """Вывод ответа от сервера в файл или на stdout."""
@@ -174,7 +173,7 @@ class Client:
         if filename:
             output = open(filename, 'bw')
         if self._include:
-            output.write(response.raw_starting_line + response.raw_headers)
+            output.write(bytes(response))
         output.write(response.message_body)
         output.close()
         self.exit_client()
@@ -183,12 +182,3 @@ class Client:
         """Завершение работы клиента."""
         self._sock.close()
         exit()
-
-
-class ClientSecured(Client):
-    def __init__(self, cmd_args: list):
-        super().__init__(*cmd_args)
-        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        context.check_hostname = False
-        context.verify_mode = ssl.CERT_NONE
-        self._sock = context.wrap_socket(self._sock, server_hostname=self._url.host)
