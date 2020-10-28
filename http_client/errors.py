@@ -35,5 +35,3 @@ class IncorrectStartingLineError(APIError):
 
     def __str__(self):
         return f"Некорректная стартовая строка ответа от сервера: {self.arg}"
-
-

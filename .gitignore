@@ -3,3 +3,9 @@
 *.iml
 __pycache__
 .coverage
+/.pre-commit-config.yaml
+/http_client.egg-info/dependency_links.txt
+/http_client.egg-info/PKG-INFO
+/http_client.egg-info/requires.txt
+/http_client.egg-info/SOURCES.txt
+/http_client.egg-info/top_level.txt
