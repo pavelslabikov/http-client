@@ -2,7 +2,14 @@ import io
 import re
 import http_client.const
 import http_client.errors
+import enum
 from yarl import URL
+
+
+class OutputMode(enum.Enum):
+    BODY = 0
+    HEADERS_BODY = 1
+    FULL = 2
 
 
 class Request:
@@ -12,12 +19,14 @@ class Request:
         uri: URL,
         headers: list,
         input_data,
+        cookies: str,
         user_agent="Mozilla/5.0",
         verbose=False,
     ):
         self.message_body = input_data.read()
         input_data.close()
         self.method = method
+        self.cookies = cookies
         self.verbose = verbose
         self.url = uri
         self.user_agent = user_agent
@@ -37,6 +46,8 @@ class Request:
         if self.method == "POST":
             headers["Content-Length"] = self.content_length
             headers["Content-Type"] = self.content_type
+        if self.cookies:
+            headers["Cookie"] = self.cookies
         headers.update(self.user_headers)
         return headers
 
@@ -50,13 +61,18 @@ class Request:
             result[user_header[0]] = user_header[1]
         return result
 
+    def get_results(self, mode: OutputMode) -> bytes:
+        result = bytearray()
+        if mode == OutputMode.FULL:
+            for header, value in self.headers.items():
+                result += f"-> {header}: {value}\r\n".encode()
+        return result
+
     def __bytes__(self):
         result = bytearray(
             f"{self.method} {self.url.raw_path_qs} HTTP/1.1\r\n", "ISO-8859-1"
         )
         for header, value in self.headers.items():
-            if self.verbose:
-                print(f"-> {header}: {value}")
             result += bytes(f"{header}: {value}\r\n", "ISO-8859-1")
         result += b"\r\n" + self.message_body + b"\r\n\r\n"
         return bytes(result)
@@ -128,3 +144,8 @@ class Response:
         return b"\r\n".join(
             [self.raw_starting_line, self.raw_headers, self.message_body]
         )
+
+    def get_results(self, preview: OutputMode) -> bytes:
+        if preview == OutputMode.BODY:
+            return self.message_body
+        return bytes(self)

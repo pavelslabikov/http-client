@@ -1,7 +1,9 @@
 import argparse
+import sys
 import http_client.errors
 import logging
 from http_client.client import Client
+from http_client.models import OutputMode
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -85,9 +87,16 @@ def set_up_arguments(arg_parser):
         default=None,
         help="Устанавливает тайм-аут для подключения к web-серверу",
     )
+    arg_parser.add_argument(
+        "-c",
+        "--cookies",
+        type=str,
+        metavar="FILENAME",
+        help="Отправить cookies из файла на web-сервер."
+    )
 
 
-def extract_arguments(args) -> tuple:
+def extract_arguments() -> tuple:
     if args.data or args.upload:
         args.method = "POST"
     if args.method == "HEAD" or args.method == "OPTIONS":
@@ -97,14 +106,22 @@ def extract_arguments(args) -> tuple:
         args.method,
         args.data,
         args.upload,
-        args.output,
         args.include,
         args.header,
         args.verbose,
         args.agent,
         args.timeout,
         args.redirect,
+        args.cookies
     )
+
+
+def get_output_mode() -> OutputMode:
+    if args.verbose:
+        return OutputMode.FULL
+    if args.include:
+        return OutputMode.HEADERS_BODY
+    return OutputMode.BODY
 
 
 if __name__ == "__main__":
@@ -112,12 +129,20 @@ if __name__ == "__main__":
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     set_up_arguments(parser)
-    cmd_args = extract_arguments(parser.parse_args())
+    args = parser.parse_args()
+    cmd_args = extract_arguments()
     try:
+        output = sys.stdout.buffer
+        if args.output:
+            output = open(args.output, "bw")
         logger.info("Initializing client")
         client = Client(*cmd_args)
         server_response = client.send_request()
-        client.get_results(server_response)
+
+        mode = get_output_mode()
+        output.write(client.request.get_results(mode))
+        output.write(server_response.get_results(mode))
+        output.close()
     except http_client.errors.APIError as e:
         logger.error(f"Client error occurred: {e}")
     except Exception as e:

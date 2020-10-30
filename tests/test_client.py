@@ -1,7 +1,7 @@
 import unittest
 import unittest.mock as mock
 from http_client.client import Client
-from http_client.utils import Request, Response
+from http_client.models import Request, Response
 import http_client.errors as errors
 import warnings
 import io
