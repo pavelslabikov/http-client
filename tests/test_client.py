@@ -10,7 +10,8 @@ from yarl import URL
 
 class TestResponseMethods(unittest.TestCase):
     def test_incorrect_starting_lines(self):
-        cases = ["HTTP/1. 101 OK", "HTTPS/1.1 101 OK", "123", "HTTP/1.1 10 OK"]
+        cases = ["HTTP/1. 101 OK", "HTTPS/1.1 101 OK",
+                 "123", "HTTP/1.1 10 OK"]
         for test_case in cases:
             with self.subTest(case=test_case), self.assertRaises(
                 errors.IncorrectStartingLineError
@@ -42,11 +43,11 @@ class TestResponseMethods(unittest.TestCase):
                 self.assertDictEqual(actual, expected)
 
     def test_getting_status(self):
-        cases = ["HTTP/1.1 100 OK", "HTTP/1.0 404", "HTTP/1.1 500 oooooooooK"]
+        cases = ["HTTP/1.1 100 OK", "HTTP/1.0 404", "HTTP/1.1 500 oooK"]
         for test_case in cases:
             with self.subTest(case=test_case):
-                response_message = io.BytesIO(test_case.encode() + b"\r\n\r\n")
-                actual_code = Response.from_bytes(response_message).status_code
+                response = io.BytesIO(test_case.encode() + b"\r\n\r\n")
+                actual_code = Response.from_bytes(response).status_code
                 expected_code = int(test_case.split(" ")[1])
                 self.assertEqual(actual_code, expected_code)
 
@@ -60,8 +61,10 @@ class TestResponseMethods(unittest.TestCase):
         for test_case in cases:
             with self.subTest(case=test_case):
                 response_message = io.BytesIO(starting_line + test_case)
-                actual_body = Response.from_bytes(response_message).message_body
-                expected_body = test_case[test_case.find(b"\r\n\r\n") + 4 :]
+                actual_body = Response.from_bytes(
+                    response_message
+                ).message_body
+                expected_body = test_case[test_case.find(b"\r\n\r\n") + 4:]
                 self.assertEqual(actual_body, expected_body)
 
 
@@ -88,7 +91,7 @@ class TestRequestMethods(unittest.TestCase):
         for test_case in cases:
             with self.subTest(case=test_case):
                 actual_headers = Request(
-                    "GET", URL("vk.com/"), test_case, io.BytesIO()
+                    "GET", URL("vk.com/"), test_case, io.BytesIO(), ""
                 ).user_headers
                 expected_headers = {}
                 for header in test_case:
@@ -98,15 +101,14 @@ class TestRequestMethods(unittest.TestCase):
 
     def test_request_starting_line(self):
         cases = [
-            ["GET", URL("http://vk.com/"), [], io.BytesIO()],
-            ["POST", URL("http://vk.com/path"), [], io.BytesIO()],
+            ["GET", URL("http://vk.com/"), [], io.BytesIO(), ""],
+            ["POST", URL("http://vk.com/path"), [], io.BytesIO(), ""],
         ]
-        for test_case in cases:
-            with self.subTest(case=test_case):
-                actual = bytes(Request(*test_case))
-                expected = (
-                    f"{test_case[0]} {test_case[1].raw_path_qs} HTTP/1.1\r\n".encode()
-                )
+        for case in cases:
+            with self.subTest(case=case):
+                actual = bytes(Request(*case))
+                method, path = case[0], case[1].raw_path_qs
+                expected = f"{method} {path} HTTP/1.1\r\n".encode()
                 self.assertTrue(actual.startswith(expected))
 
 
@@ -118,13 +120,13 @@ class TestClientEfficiency(unittest.TestCase):
             "method": "GET",
             "data": "",
             "upload": "",
-            "output": "",
             "include": False,
             "headers": [],
             "verbose": False,
             "agent": "",
             "timeout": None,
             "redirect": False,
+            "cookies": None,
         }
         warnings.simplefilter("ignore", ResourceWarning)
 
@@ -133,14 +135,21 @@ class TestClientEfficiency(unittest.TestCase):
             "http_client.client.Client.extract_input_data",
             return_value=io.BytesIO(b"test"),
         ), self.subTest("Return value - BytesIO"):
-            actual_user_data = Client(*self.default_args.values()).request.message_body
+            actual_user_data = Client(
+                *self.default_args.values()
+            ).request.message_body
             self.assertEqual(actual_user_data, b"test")
+
+        with open("test_file.txt", "bw") as test_file:
+            test_file.write(b"test")
 
         with mock.patch(
             "http_client.client.Client.extract_input_data",
             return_value=open("test_file.txt", "br"),
         ), self.subTest("Return value - FileIO"):
-            actual_user_data = Client(*self.default_args.values()).request.message_body
+            actual_user_data = Client(
+                *self.default_args.values()
+            ).request.message_body
             self.assertEqual(actual_user_data, b"test")
 
     def test_http_methods(self):
@@ -153,7 +162,9 @@ class TestClientEfficiency(unittest.TestCase):
         for test_case in cases:
             with self.subTest(test_case):
                 self.default_args.update(test_case)
-                actual_method = Client(*self.default_args.values()).request.method
+                actual_method = Client(
+                    *self.default_args.values()
+                ).request.method
                 self.assertEqual(actual_method, test_case["method"])
 
     def test_wrong_format_url(self):
@@ -173,12 +184,19 @@ class TestClientEfficiency(unittest.TestCase):
         cases = [
             {"agent": "test"},
             {"headers": [["User-Agent", "test"]]},
-            {"headers": [["user-agent", "test"], ["connection", "keep-alive"]]},
+            {
+                "headers": [
+                    ["user-agent", "test"],
+                    ["connection", "keep-alive"],
+                ]
+            },
         ]
         for test_case in cases:
             with self.subTest(case=test_case):
                 self.default_args.update(test_case)
-                actual_agent = Client(*self.default_args.values()).request.user_agent
+                actual_agent = Client(
+                    *self.default_args.values()
+                ).request.user_agent
                 self.assertEqual(actual_agent, "test")
 
 
@@ -190,13 +208,13 @@ class TestClientNetworkInteraction(unittest.TestCase):
             "method": "GET",
             "data": "",
             "upload": "",
-            "output": "",
             "include": False,
             "headers": [],
             "verbose": False,
             "agent": "",
             "timeout": None,
             "redirect": False,
+            "cookies": None,
         }
         warnings.simplefilter("ignore", ResourceWarning)
 

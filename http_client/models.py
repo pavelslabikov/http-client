@@ -36,7 +36,6 @@ class Request:
         self.headers = self.get_request_headers()
 
     def get_request_headers(self) -> dict:
-        """Формирование базовых, пользовательских заголовков, а так же для конкретных методов (POST)"""
         headers = {
             "Host": self.url.host,
             "User-Agent": self.user_agent,
@@ -89,7 +88,7 @@ class Response:
         content_length: int,
         content_type: str,
     ):
-        self.protocol = proto
+        self.proto = proto
         self.reason_phrase = phrase
         self.status_code = code
         self.headers = headers
@@ -105,7 +104,9 @@ class Response:
 
     @property
     def raw_starting_line(self):
-        return f"{self.protocol} {self.status_code} {self.reason_phrase}".encode()
+        return (
+            f"{self.proto} {self.status_code} {self.reason_phrase}".encode()
+        )
 
     @classmethod
     def from_bytes(cls, raw_response: io.BytesIO):
@@ -131,9 +132,8 @@ class Response:
 
     @classmethod
     def parse_starting_line(cls, line: bytes):
-        """Извлечение версии протокола, кода ответа и пояснения из стартовой строки ответа."""
         result = re.search(
-            http_client.const.STARTING_LINE_EXPR, line.rstrip(b"\r\n").decode()
+            http_client.const.STARTING_LINE, line.rstrip(b"\r\n").decode()
         )
         if not result:
             raise http_client.errors.IncorrectStartingLineError(line.decode())

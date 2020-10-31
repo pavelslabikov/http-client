@@ -23,7 +23,7 @@ class Client:
         user_agent: str,
         timeout: float,
         redirect: bool,
-        cookie_file: str
+        cookie_file: str,
     ):
         self._redirect = redirect
         self._include = include
@@ -35,7 +35,13 @@ class Client:
             raise http_client.errors.UrlParsingError(url)
         self._sock = self.initialize_socket(self._url.scheme, timeout)
         self.request = Request(
-            method, self._url, user_headers, self._user_data, self._cookies, user_agent, verbose
+            method,
+            self._url,
+            user_headers,
+            self._user_data,
+            self._cookies,
+            user_agent,
+            verbose,
         )
 
     @staticmethod
@@ -82,7 +88,6 @@ class Client:
         return self.receive_response()
 
     def receive_response(self) -> Response:
-        """Получение ответа от сервера и переадресация на новый web-server."""
         raw_response = io.BytesIO()
         while True:
             data = self._sock.recv(http_client.const.BUFFER_SIZE)
@@ -93,13 +98,14 @@ class Client:
         response = Response.from_bytes(raw_response)
         logger.info(f"Received response with code: {response.status_code}")
         if self._redirect and 301 <= response.status_code < 400:
-            logger.info(f"Redirecting to another host: {response.headers['location']}")
+            logger.info(
+                f"Redirecting to host: {response.headers['location']}"
+            )
             self.reconnect_socket(response.headers["location"].lstrip())
             response = self.send_request()
         return response
 
     def reconnect_socket(self, url: str):
-        """Переподключение существующего сокета к новому адресу при переадресации."""
         new_url = URL(url)
         if not new_url.host:
             raise http_client.errors.UrlParsingError(url)

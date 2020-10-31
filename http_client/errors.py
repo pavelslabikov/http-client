@@ -18,7 +18,7 @@ class HeaderFormatError(APIError):
         self.arg = header
 
     def __str__(self):
-        return f"Некорректный формат пользовательского заголовка: '{self.arg}'"
+        return f"Некорректный формат заголовка: '{self.arg}'"
 
 
 class ConnectingError(APIError, socket.gaierror):

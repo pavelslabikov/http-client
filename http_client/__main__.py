@@ -34,7 +34,7 @@ def set_up_arguments(arg_parser):
         "--data",
         type=str,
         default="",
-        help="Данные, введённые в консоль, будут отправлены на web-сервер методом POST.",
+        help="Данные будут отправлены на web-сервер методом POST.",
     )
     arg_parser.add_argument(
         "-M",
@@ -50,7 +50,7 @@ def set_up_arguments(arg_parser):
         "--upload",
         type=str,
         metavar="FILENAME",
-        help="Передает содержимое указанного файла на web-сервер методом POST.",
+        help="Передает содержимое файла на web-сервер методом POST.",
     )
     arg_parser.add_argument(
         "-H",
@@ -59,7 +59,7 @@ def set_up_arguments(arg_parser):
         nargs=2,
         action="append",
         default=[],
-        help="Изменить или добавить заголовок (требует 2 аргумента). Формат ввода: <header> <value>",
+        help="Изменить или добавить заголовок. Формат: <header> <value>",
     )
     arg_parser.add_argument(
         "-v",
@@ -71,13 +71,13 @@ def set_up_arguments(arg_parser):
         "-i",
         "--include",
         action="store_true",
-        help="Выводить ответ от сервера полностью/только message body (по умолчанию body)",
+        help="Выводить ответ от сервера полностью/только message body",
     )
     arg_parser.add_argument(
         "-r",
         "--redirect",
         action="store_true",
-        help="Включить/ыключить перенаправление на сайты, указанные в 'Location:'",
+        help="Вкл/выкл перенаправление на сайты, указанные в 'Location:'",
     )
     arg_parser.add_argument(
         "-T",
@@ -92,7 +92,7 @@ def set_up_arguments(arg_parser):
         "--cookies",
         type=str,
         metavar="FILENAME",
-        help="Отправить cookies из файла на web-сервер."
+        help="Отправить cookies из файла на web-сервер.",
     )
 
 
@@ -112,7 +112,7 @@ def extract_arguments() -> tuple:
         args.agent,
         args.timeout,
         args.redirect,
-        args.cookies
+        args.cookies,
     )
 
 
