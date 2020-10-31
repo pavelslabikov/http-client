@@ -13,3 +13,7 @@ exclude = '''
   | dist
 )/
 '''
+
+[tool.coverage.run]
+source = ["http_client"]
+omit = ["http_client/__main__.py", "setup.py"]

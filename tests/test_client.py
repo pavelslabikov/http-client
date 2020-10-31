@@ -180,6 +180,16 @@ class TestClientEfficiency(unittest.TestCase):
             with self.assertRaises(errors.UrlParsingError):
                 Client(*self.default_args.values())
 
+    def test_non_exist_url(self):
+        cases = [
+            {"url": "https://alskjaskvx.com"},
+            {"url": "http://a1234.com.ua"},
+        ]
+        for test_case in cases:
+            self.default_args.update(test_case)
+            with self.assertRaises(errors.ConnectingError):
+                Client(*self.default_args.values()).send_request()
+
     def test_changing_user_agent(self):
         cases = [
             {"agent": "test"},
